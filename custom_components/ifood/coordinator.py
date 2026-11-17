@@ -16,11 +16,15 @@ from .const import (
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     DOMAIN,
+    EVENT_NEW_VOUCHER,
     EVENT_ORDER_UPDATED,
+    EXTRAS_REFRESH_SECONDS,
     HISTORY_REFRESH_SECONDS,
     IDLE_SCAN_INTERVAL_SECONDS,
     LOGGER,
+    MERCHANT_REFRESH_SECONDS,
     SILENT_EVENTS,
+    TOP_MERCHANTS,
 )
 
 if TYPE_CHECKING:
@@ -52,6 +56,10 @@ class IfoodDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_status: dict[str, str] = {}
         self._active_ids: set[str] = set()
         self._primed = False
+        self._extras: dict[str, Any] = {"vouchers": [], "me": {}, "wallet": [], "stores": {}}
+        self._extras_at = 0.0
+        self._live_at = 0.0
+        self._seen_vouchers: set[str] | None = None
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
@@ -112,6 +120,7 @@ class IfoodDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fire_status_change(order)
 
         self._active_ids = {o["id"] for o in active}
+        await self._fetch_extras(orders)
         self._primed = True
         return {
             "account": self._account,
@@ -119,7 +128,53 @@ class IfoodDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "orders": orders,
             "active": active,
             "details": details,
+            **self._extras,
         }
+
+    async def _safe(self, coro: Any, default: Any) -> Any:
+        """Extras não derrubam o update: erro (exceto auth) mantém o valor anterior."""
+        try:
+            return await coro
+        except IfoodApiAuthenticationError:
+            raise
+        except IfoodApiError as err:
+            LOGGER.debug("extra indisponível: %s", err)
+            return default
+
+    async def _fetch_extras(self, orders: list[dict[str, Any]]) -> None:
+        """Cupons/Clube/carteira/lojas: hora em hora; loja ao vivo: 10 min."""
+        coords = logic.last_delivery_coords(orders)
+        now = time.monotonic()
+        ex = self._extras
+        tops = logic.top_merchants(orders, TOP_MERCHANTS)
+        if now - self._extras_at > EXTRAS_REFRESH_SECONDS or not self._extras_at:
+            self._extras_at = now
+            if coords:
+                ex["vouchers"] = await self._safe(self.client.async_get_vouchers(*coords), ex["vouchers"])
+                self._fire_new_vouchers(ex["vouchers"])
+            ex["me"] = await self._safe(self.client.async_get_me(), ex["me"])
+            ex["wallet"] = await self._safe(self.client.async_get_wallet_accounts(), ex["wallet"])
+            for m in tops:
+                st = ex["stores"].setdefault(m["id"], {"info": m})
+                st["extra"] = await self._safe(self.client.async_get_merchant_extra(m["id"]), st.get("extra"))
+                st["items"] = await self._safe(self.client.async_get_my_items(m["id"]), st.get("items") or [])
+                st["reviews"] = await self._safe(
+                    self.client.async_get_review_averages(m["id"]), st.get("reviews") or []
+                )
+        if coords and (now - self._live_at > MERCHANT_REFRESH_SECONDS or not self._live_at):
+            self._live_at = now
+            for m in tops:
+                st = ex["stores"].setdefault(m["id"], {"info": m})
+                st["live"] = await self._safe(self.client.async_get_merchant(m["id"], *coords), st.get("live"))
+
+    def _fire_new_vouchers(self, vouchers: list[dict[str, Any]]) -> None:
+        ids = {v["id"] for v in vouchers if v.get("id")}
+        if self._seen_vouchers is not None:
+            for v in vouchers:
+                if v.get("id") not in self._seen_vouchers and v.get("status") == "AVAILABLE":
+                    self.hass.bus.async_fire(EVENT_NEW_VOUCHER, logic.voucher_summary(v))
+        if ids:  # lista vazia (erro) não zera o que já foi visto
+            self._seen_vouchers = (self._seen_vouchers or set()) | ids
 
     def _fire(self, order: dict[str, Any], code: str, when: str | None, meta: dict[str, Any] | None) -> None:
         if not self._primed:

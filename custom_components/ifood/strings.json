@@ -7,7 +7,8 @@
         "data": {
           "refresh_token": "Refresh token (aRefreshToken)",
           "device_id": "Device ID (aDeviceId)",
-          "access_token": "Access token (aAccessToken, optional)"
+          "access_token": "Access token (aAccessToken, optional)",
+          "payment_secret": "Payment secret (cookie x-ifood-device-payment-…, optional: wallet balance)"
         }
       },
       "reauth_confirm": {
@@ -16,7 +17,8 @@
         "data": {
           "refresh_token": "Refresh token (aRefreshToken)",
           "device_id": "Device ID (aDeviceId)",
-          "access_token": "Access token (aAccessToken, optional)"
+          "access_token": "Access token (aAccessToken, optional)",
+          "payment_secret": "Payment secret (cookie x-ifood-device-payment-…, optional: wallet balance)"
         }
       }
     },

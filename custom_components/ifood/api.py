@@ -16,6 +16,10 @@ from typing import Any
 import aiohttp
 
 BASE_URL = "https://marketplace.ifood.com.br"
+# Cupons e loja ao vivo: o site-api roteia para cá (marketplace devolve 404).
+CW_URL = "https://cw-marketplace.ifood.com.br"
+# Carteira/cartões: exige X-Ifood-Device-Payment-Secret (cookie x-ifood-device-payment-<hash>).
+PAYMENT_URL = "https://payment.ifood.com.br"
 APP_VERSION = "9.182.2"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -61,12 +65,14 @@ class IfoodApiClient:
         refresh_token: str,
         device_id: str,
         access_token: str | None = None,
+        payment_secret: str | None = None,
     ) -> None:
         """Inicializa o cliente."""
         self._session = session
         self.refresh_token = refresh_token
         self.access_token = access_token
         self.device_id = device_id
+        self.payment_secret = payment_secret
         self._lock = asyncio.Lock()
 
     def _headers(self, auth: bool = True) -> dict[str, str]:
@@ -113,14 +119,16 @@ class IfoodApiClient:
         params: dict[str, Any] | None = None,
         json_body: Any = None,
         auth: bool = True,
+        base: str = BASE_URL,
+        headers: dict[str, str] | None = None,
     ) -> Any:
         try:
             async with self._session.request(
                 method,
-                BASE_URL + path,
+                base + path,
                 params=params,
                 json=json_body,
-                headers=self._headers(auth),
+                headers={**self._headers(auth), **(headers or {})},
                 timeout=aiohttp.ClientTimeout(total=20),
             ) as resp:
                 if resp.status in (401, 403):
@@ -137,14 +145,20 @@ class IfoodApiClient:
         except (aiohttp.ClientError, TimeoutError) as err:
             raise IfoodApiCommunicationError(str(err)) from err
 
-    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+    async def _get(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        base: str = BASE_URL,
+        headers: dict[str, str] | None = None,
+    ) -> Any:
         await self.async_refresh()
         try:
-            return await self._raw("GET", path, params)
+            return await self._raw("GET", path, params, base=base, headers=headers)
         except IfoodApiAuthenticationError:
             # Access token revogado antes do exp: uma tentativa de renovar.
             await self.async_refresh(force=True)
-            return await self._raw("GET", path, params)
+            return await self._raw("GET", path, params, base=base, headers=headers)
 
     async def async_get_account(self) -> dict[str, Any]:
         """Dados da conta (nome, e-mail, telefone, cadastro)."""
@@ -175,3 +189,54 @@ class IfoodApiClient:
     async def async_get_addresses(self) -> list[dict[str, Any]]:
         """Endereços salvos."""
         return await self._get("/v1/customers/me/addresses") or []
+
+    async def async_get_me(self) -> dict[str, Any]:
+        """Conta + `club.tags` (segmentação interna; única pista do Clube no site)."""
+        return await self._get("/v1/customers/me") or {}
+
+    async def async_get_vouchers(self, lat: float, lon: float) -> list[dict[str, Any]]:
+        """Carteira de cupons."""
+        data = await self._get(
+            "/v3/customers/me/wallet/benefits",
+            {"lat": lat, "lon": lon, "distanceInKm": 10},
+            base=CW_URL,
+            headers={"X-ZoneId": "America/Sao_Paulo"},
+        )
+        return (data or {}).get("vouchers") or []
+
+    async def async_get_merchant(self, merchant_id: str, lat: float, lon: float) -> dict[str, Any] | None:
+        """Loja ao vivo: aberta, tempo/taxa de entrega, distância, nota."""
+        return await self._get(
+            f"/v2/merchants/{merchant_id}",
+            {"latitude": lat, "longitude": lon, "channel": "IFOOD"},
+            base=CW_URL,
+        )
+
+    async def async_get_merchant_extra(self, merchant_id: str) -> dict[str, Any] | None:
+        """Horários (`shifts`), total de avaliações, categorias."""
+        return await self._get(f"/v1/merchants/{merchant_id}/extra")
+
+    async def async_get_my_items(self, merchant_id: str) -> list[dict[str, Any]]:
+        """Itens que você já pediu na loja, com o preço de hoje (em reais)."""
+        return await self._get(f"/v1/customers/me/merchants/{merchant_id}/items") or []
+
+    async def async_get_review_averages(self, merchant_id: str) -> list[dict[str, Any]]:
+        """Médias de avaliação por critério."""
+        data = await self._get(
+            "/v1/review/evaluations",
+            {"filterJson": json.dumps({"restaurantUuid": merchant_id, "page": 1, "pageSize": 1, "visible": True})},
+        )
+        return ((data or {}).get("data") or {}).get("evaluationsAverages") or []
+
+    async def async_get_wallet_accounts(self) -> list[dict[str, Any]]:
+        """Saldo da conta iFood. Sem o segredo de pagamento, nada."""
+        if not self.payment_secret:
+            return []
+        return (
+            await self._get(
+                "/v1/customers/me/wallet-accounts",
+                base=PAYMENT_URL,
+                headers={"X-Ifood-Device-Payment-Secret": self.payment_secret},
+            )
+            or []
+        )

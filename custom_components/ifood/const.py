@@ -18,6 +18,14 @@ ACTIVE_SCAN_INTERVAL_SECONDS = 30
 HISTORY_REFRESH_SECONDS = 3600
 
 EVENT_ORDER_UPDATED = "ifood_pedido_atualizado"
+EVENT_NEW_VOUCHER = "ifood_cupom_novo"
+CONF_PAYMENT_SECRET = "payment_secret"
+
+# Cupons, Clube, carteira e detalhes das lojas mudam devagar.
+EXTRAS_REFRESH_SECONDS = 3600
+# Loja ao vivo (aberta, tempo/taxa de entrega).
+MERCHANT_REFRESH_SECONDS = 600
+TOP_MERCHANTS = 3
 
 # lastStatus do pedido (bundle do site + respostas reais).
 FINAL_STATUSES = {"CONCLUDED", "DECLINED", "CANCELLED"}

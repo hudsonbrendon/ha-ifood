@@ -21,13 +21,14 @@ from .api import (
     IfoodApiError,
     IfoodApiRateLimitError,
 )
-from .const import CONF_ACCESS_TOKEN, CONF_DEVICE_ID, CONF_REFRESH_TOKEN, DOMAIN
+from .const import CONF_ACCESS_TOKEN, CONF_DEVICE_ID, CONF_PAYMENT_SECRET, CONF_REFRESH_TOKEN, DOMAIN
 
 SCHEMA = vol.Schema(
     {
         vol.Required(CONF_REFRESH_TOKEN): str,
         vol.Required(CONF_DEVICE_ID): str,
         vol.Optional(CONF_ACCESS_TOKEN): str,
+        vol.Optional(CONF_PAYMENT_SECRET): str,
     }
 )
 
@@ -43,6 +44,7 @@ class IfoodConfigFlow(ConfigFlow, domain=DOMAIN):
             refresh_token=user_input[CONF_REFRESH_TOKEN].strip(),
             device_id=user_input[CONF_DEVICE_ID].strip(),
             access_token=(user_input.get(CONF_ACCESS_TOKEN) or "").strip() or None,
+            payment_secret=(user_input.get(CONF_PAYMENT_SECRET) or "").strip() or None,
         )
         try:
             account = await client.async_get_account()
@@ -62,6 +64,7 @@ class IfoodConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_REFRESH_TOKEN: client.refresh_token,
                 CONF_ACCESS_TOKEN: client.access_token,
                 CONF_DEVICE_ID: client.device_id,
+                CONF_PAYMENT_SECRET: client.payment_secret,
             },
         }, {}
 

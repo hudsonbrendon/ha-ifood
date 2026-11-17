@@ -47,13 +47,14 @@ def order(oid, created, status="CONCLUDED", merchant="Pizzaria", paid=3197, full
             "total": {"currency": "BRL", "value": paid},
         },
         "bag": {
-            "items": [{"name": "Quentinha  - 2 Proteínas", "quantity": 1}],
+            "items": [{"id": "i1", "name": "Quentinha  - 2 Proteínas", "quantity": 1, "unitPrice": 2799}],
             "subTotal": {"value": 2799, "valueWithDiscount": 2799},
             "deliveryFee": {"value": fee, "valueWithDiscount": fee},
             "total": {"value": full, "valueWithDiscount": paid},
         },
         "verificationCodes": [{"name": "DELIVERY_CODE", "value": "7004"}],
-        "delivery": {"estimatedTimeOfArrival": {"deliversAt": created, "deliversEndAt": created}},
+        "delivery": {"estimatedTimeOfArrival": {"deliversAt": created, "deliversEndAt": created},
+                     "address": {"coordinates": {"latitude": -5.9, "longitude": -35.2}}},
     }
 
 
@@ -86,6 +87,35 @@ def main() -> None:
     assert sm["pagamento"] == "Apple Pay (Mastercard)", sm
     assert sm["total"] == 31.97 and sm["desconto"] == 6.01, sm
     assert logic.status_pt("NOVO_STATUS_X") == "NOVO_STATUS_X"
+
+    # Cupons: FIXED em centavos, PERCENT usa o teto em reais; vencido/usado fora.
+    def v(vid, exp, eff, status="AVAILABLE", code="X", vertical="RESTAURANT"):
+        return {"id": vid, "status": status, "expiresAt": exp,
+                "campaign": {"code": code, "promoDescription": vid, "effects": [eff], "vertical": vertical}}
+    vs = [
+        v("a", "2026-11-18T02:59:59Z", {"type": "FIXED", "value": 1500.0, "maxCredit": 0.0}),
+        v("b", "2026-11-30T02:59:59Z", {"type": "PERCENT", "value": 25.0, "maxCredit": 10.0}, code="CLUBE_X"),
+        v("c", "2026-11-10T02:59:59Z", {"type": "FIXED", "value": 9000.0}),  # vencido
+        v("d", "2026-11-20T02:59:59Z", {"type": "FIXED", "value": 9000.0}, status="USED"),
+        v("e", "2026-11-19T02:59:59Z", {"type": "FIXED", "value": 3000.0}, vertical="PHARMACY"),
+    ]
+    vst = logic.voucher_stats(vs, now)
+    assert vst["disponiveis"] == 3 and vst["vencendo_7d"] == 2 and vst["clube"] == 1, vst
+    assert vst["proximo"]["id"] == "a" and vst["maior"]["valor_max"] == 15.0, vst
+    assert vst["por_categoria"] == {"Restaurantes": 2, "Farmácias": 1}, vst
+
+    club = logic.club_info({"club": {"tags": ["club_lifecycle_string_plan/signed", "club_plan_tier/standard",
+                                               "lifetime_club_orders/6+", "is_mub_club"]}})
+    assert club["ativo"] and club["plano"] == "standard" and club["pedidos_com_clube"] == "6+", club
+    assert not logic.club_info({})["ativo"]
+
+    tops = logic.top_merchants(orders)
+    assert [t["name"] for t in tops] == ["Churrascaria", "Sushi"], tops  # recusado/aberto não contam
+    item = logic.usual_item(orders, "m-Churrascaria")
+    assert item["nome"] == "Quentinha - 2 Proteínas" and item["vezes"] == 2, item
+    assert logic.shifts_text([{"dayOfWeek": "MONDAY", "start": "10:30:00", "duration": 240},
+                              {"dayOfWeek": "MONDAY", "start": "18:00:00", "duration": 360}]) == {
+        "seg": "10:30–14:30, 18:00–00:00"}
     print("ok")
 
 

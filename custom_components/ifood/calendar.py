@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import logic
 from .data import IfoodConfigEntry
@@ -17,7 +18,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: IfoodConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Cria o calendário."""
-    async_add_entities([IfoodOrdersCalendar(entry.runtime_data)])
+    async_add_entities([IfoodOrdersCalendar(entry.runtime_data), IfoodVouchersCalendar(entry.runtime_data)])
 
 
 class IfoodOrdersCalendar(IfoodEntity, CalendarEntity):
@@ -31,6 +32,13 @@ class IfoodOrdersCalendar(IfoodEntity, CalendarEntity):
         super().__init__(coordinator, "calendario_pedidos")
 
     def _events(self) -> list[CalendarEvent]:
+        # Recalcula só quando o coordinator troca os dados (HA lê `event` várias vezes).
+        if getattr(self, "_cache_for", None) is not self.coordinator.data:
+            self._cache = self._build()
+            self._cache_for = self.coordinator.data
+        return self._cache
+
+    def _build(self) -> list[CalendarEvent]:
         events = []
         for order in self.coordinator.data["orders"]:
             start = logic.parse_dt(order.get("createdAt"))
@@ -60,6 +68,57 @@ class IfoodOrdersCalendar(IfoodEntity, CalendarEntity):
         events = self._events()
         return events[0] if events else None
 
-    async def async_get_events(self, hass: HomeAssistant, start_date: datetime, end_date: datetime) -> list[CalendarEvent]:
+    async def async_get_events(
+        self, hass: HomeAssistant, start_date: datetime, end_date: datetime
+    ) -> list[CalendarEvent]:
+        """Eventos no intervalo."""
+        return [e for e in self._events() if e.end > start_date and e.start < end_date]
+
+
+class IfoodVouchersCalendar(IfoodEntity, CalendarEntity):
+    """Vencimento de cada cupom disponível (evento de 1 h terminando no vencimento)."""
+
+    _attr_name = "Cupons"
+    _attr_icon = "mdi:ticket-percent"
+
+    def __init__(self, coordinator) -> None:
+        """Inicializa."""
+        super().__init__(coordinator, "calendario_cupons")
+
+    def _events(self) -> list[CalendarEvent]:
+        # Recalcula só quando o coordinator troca os dados (HA lê `event` várias vezes).
+        if getattr(self, "_cache_for", None) is not self.coordinator.data:
+            self._cache = self._build()
+            self._cache_for = self.coordinator.data
+        return self._cache
+
+    def _build(self) -> list[CalendarEvent]:
+        events = []
+        for v in logic.vouchers_available(self.coordinator.data.get("vouchers") or [], dt_util.utcnow()):
+            s = logic.voucher_summary(v)
+            end = logic.parse_dt(s["vence_em"])
+            if not end:
+                continue
+            val = f" (até R$ {s['valor_max']:.2f})".replace(".", ",") if s["valor_max"] is not None else ""
+            events.append(
+                CalendarEvent(
+                    start=end - timedelta(hours=1),
+                    end=end,
+                    summary=f"Cupom vence: {s['descricao']}{val}",
+                    description="\n".join([s["categoria"] or "", *s["regras"]]),
+                    uid=f"ifood-cupom-{v.get('id')}",
+                )
+            )
+        return events
+
+    @property
+    def event(self) -> CalendarEvent | None:
+        """Próximo vencimento."""
+        events = self._events()
+        return events[0] if events else None
+
+    async def async_get_events(
+        self, hass: HomeAssistant, start_date: datetime, end_date: datetime
+    ) -> list[CalendarEvent]:
         """Eventos no intervalo."""
         return [e for e in self._events() if e.end > start_date and e.start < end_date]

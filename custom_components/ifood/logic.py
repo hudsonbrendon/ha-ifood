@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .const import FINAL_STATUSES, LOGO_URL, STATUS_PT
@@ -159,3 +159,167 @@ def stats(orders: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
         "top_restaurantes": {name: n for name, n in top},
         "primeiro_pedido": paid[-1].get("createdAt") if paid else None,
     }
+
+
+# ---------- cupons ----------
+
+def voucher_value(v: dict[str, Any]) -> float | None:
+    """Desconto máximo em reais. FIXED vem em centavos; PERCENT usa o teto (maxCredit, em reais)."""
+    effects = (v.get("campaign") or {}).get("effects") or []
+    if not effects:
+        return None
+    e = effects[0]
+    if e.get("type") == "FIXED" and isinstance(e.get("value"), (int, float)):
+        return round(e["value"] / 100, 2)
+    if isinstance(e.get("maxCredit"), (int, float)) and e["maxCredit"] > 0:
+        return round(float(e["maxCredit"]), 2)
+    return None
+
+
+def voucher_is_club(v: dict[str, Any]) -> bool:
+    """Cupom do Clube iFood."""
+    code = str((v.get("campaign") or {}).get("code") or "")
+    return code.startswith("CLUBE") or (v.get("metadata") or {}).get("club") == "true"
+
+
+VERTICAL_PT = {
+    "RESTAURANT": "Restaurantes",
+    "MARKET": "Mercados",
+    "PHARMACY": "Farmácias",
+    "BEVERAGE": "Bebidas",
+    "PET": "Pet",
+    "SHOP": "Lojas",
+    "WHOLESALE": "Atacado",
+}
+
+
+def voucher_summary(v: dict[str, Any]) -> dict[str, Any]:
+    """Resumo pt-BR de um cupom."""
+    c = v.get("campaign") or {}
+    return {
+        "id": v.get("id"),
+        "descricao": c.get("promoDescription"),
+        "valor_max": voucher_value(v),
+        "categoria": VERTICAL_PT.get(c.get("vertical"), c.get("vertical")),
+        "vence_em": v.get("expiresAt"),
+        "clube": voucher_is_club(v),
+        "regras": c.get("promoTerms") or [],
+    }
+
+
+def vouchers_available(vouchers: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
+    """Disponíveis e não vencidos, do que vence primeiro ao último."""
+    out = []
+    for v in vouchers:
+        exp = parse_dt(v.get("expiresAt"))
+        if v.get("status") == "AVAILABLE" and (exp is None or exp > now):
+            out.append(v)
+    return sorted(out, key=lambda v: parse_dt(v.get("expiresAt")) or now)
+
+
+def voucher_stats(vouchers: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
+    """Números da carteira de cupons."""
+    av = vouchers_available(vouchers, now)
+    soon = [v for v in av if (parse_dt(v.get("expiresAt")) or now) < now + timedelta(days=7)]
+    food = [v for v in av if (v.get("campaign") or {}).get("vertical") == "RESTAURANT"]
+    best = max(food, key=lambda v: voucher_value(v) or 0, default=None)
+    by_cat: Counter[str] = Counter(voucher_summary(v)["categoria"] or "Outros" for v in av)
+    return {
+        "disponiveis": len(av),
+        "vencendo_7d": len(soon),
+        "clube": sum(1 for v in av if voucher_is_club(v)),
+        "proximo": voucher_summary(av[0]) if av else None,
+        "maior": voucher_summary(best) if best else None,
+        "por_categoria": dict(by_cat.most_common()),
+    }
+
+
+# ---------- Clube ----------
+
+def club_info(me: dict[str, Any]) -> dict[str, Any]:
+    """Lê as tags internas `chave/valor` do Clube. Estimativa: não é uma API do Clube."""
+    tags = ((me or {}).get("club") or {}).get("tags") or []
+    kv: dict[str, str] = {}
+    flags: set[str] = set()
+    for t in tags:
+        if "/" in t:
+            k, _, val = t.partition("/")
+            kv.setdefault(k, val)
+        else:
+            flags.add(t)
+    plan = kv.get("club_lifecycle_string_plan")
+    return {
+        "ativo": plan == "signed" or "is_mub_club" in flags,
+        "situacao": plan,
+        "plano": kv.get("club_plan_tier"),
+        "modalidade": kv.get("club_plan_modality"),
+        "status": kv.get("status_clube"),
+        "pedidos_com_clube": kv.get("lifetime_club_orders"),
+        "uso_do_beneficio": kv.get("active_club_consumed"),
+        "meses_assinante": kv.get("months_with_club_subscriptions"),
+        "pedidos_por_semana": kv.get("freq_ifood_weekly"),
+        "pedidos_por_mes": kv.get("freq_fd_monthly"),
+    }
+
+
+# ---------- lojas ----------
+
+def top_merchants(orders: list[dict[str, Any]], n: int = 3) -> list[dict[str, Any]]:
+    """Lojas mais pedidas (concluídos), com o último endereço de entrega usado nelas."""
+    count: Counter[str] = Counter()
+    info: dict[str, dict[str, Any]] = {}
+    for o in orders:
+        m = o.get("merchant") or {}
+        if not is_paid(o) or not m.get("id"):
+            continue
+        count[m["id"]] += 1
+        info.setdefault(m["id"], {"id": m["id"], "name": m.get("name"), "logo": m.get("logo")})
+    return [info[mid] for mid, _ in count.most_common(n)]
+
+
+def usual_item(orders: list[dict[str, Any]], merchant_id: str) -> dict[str, Any] | None:
+    """Item mais pedido na loja e o último preço pago (em reais)."""
+    count: Counter[str] = Counter()
+    last: dict[str, dict[str, Any]] = {}
+    for o in orders:  # mais novo primeiro
+        if not is_paid(o) or (o.get("merchant") or {}).get("id") != merchant_id:
+            continue
+        for i in (o.get("bag") or {}).get("items") or []:
+            iid = i.get("id")
+            if not iid:
+                continue
+            count[iid] += i.get("quantity", 1)
+            last.setdefault(iid, {"id": iid, "nome": " ".join(str(i.get("name", "")).split()),
+                                  "ultimo_preco": money(i.get("unitPrice")), "pedido_em": o.get("createdAt")})
+    if not count:
+        return None
+    iid, n = count.most_common(1)[0]
+    return {**last[iid], "vezes": n}
+
+
+DAY_PT = {"MONDAY": "seg", "TUESDAY": "ter", "WEDNESDAY": "qua", "THURSDAY": "qui",
+          "FRIDAY": "sex", "SATURDAY": "sáb", "SUNDAY": "dom"}
+
+
+def shifts_text(shifts: list[dict[str, Any]]) -> dict[str, str]:
+    """{'seg': '10:30–14:30', ...}."""
+    out: dict[str, list[str]] = {}
+    for s in shifts or []:
+        start = str(s.get("start") or "")[:5]
+        dur = s.get("duration")
+        if not start or not isinstance(dur, (int, float)):
+            continue
+        h, m = map(int, start.split(":"))
+        end_min = h * 60 + m + int(dur)
+        end = f"{(end_min // 60) % 24:02d}:{end_min % 60:02d}"
+        out.setdefault(DAY_PT.get(s.get("dayOfWeek"), s.get("dayOfWeek")), []).append(f"{start}–{end}")
+    return {d: ", ".join(v) for d, v in out.items()}
+
+
+def last_delivery_coords(orders: list[dict[str, Any]]) -> tuple[float, float] | None:
+    """Coordenadas da última entrega: o endereço "favorito" da conta pode estar em outra cidade."""
+    for o in orders:
+        c = ((o.get("delivery") or {}).get("address") or {}).get("coordinates") or {}
+        if isinstance(c.get("latitude"), (int, float)) and isinstance(c.get("longitude"), (int, float)):
+            return c["latitude"], c["longitude"]
+    return None

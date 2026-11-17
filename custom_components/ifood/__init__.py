@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import IfoodApiClient
-from .const import CONF_ACCESS_TOKEN, CONF_DEVICE_ID, CONF_REFRESH_TOKEN
+from .const import CONF_ACCESS_TOKEN, CONF_DEVICE_ID, CONF_PAYMENT_SECRET, CONF_REFRESH_TOKEN
 from .coordinator import IfoodDataUpdateCoordinator
 from .data import IfoodConfigEntry
 
@@ -21,6 +21,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: IfoodConfigEntry) -> boo
         refresh_token=entry.data[CONF_REFRESH_TOKEN],
         device_id=entry.data[CONF_DEVICE_ID],
         access_token=entry.data.get(CONF_ACCESS_TOKEN),
+        payment_secret=entry.data.get(CONF_PAYMENT_SECRET),
     )
     coordinator = IfoodDataUpdateCoordinator(hass, client)
     entry.runtime_data = coordinator

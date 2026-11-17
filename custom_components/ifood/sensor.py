@@ -12,11 +12,13 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
+from homeassistant.const import UnitOfLength, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import logic
+from .const import TOP_MERCHANTS
 from .data import IfoodConfigEntry
 from .entity import IfoodEntity
 
@@ -59,6 +61,30 @@ def _active_attrs(d: dict[str, Any]) -> dict[str, Any]:
 def _dt(value: Any):
     dt = logic.parse_dt(value)
     return dt_util.as_utc(dt) if dt else None
+
+
+def _vstats(d: dict[str, Any]) -> dict[str, Any]:
+    return logic.voucher_stats(d.get("vouchers") or [], dt_util.utcnow())
+
+
+def _voucher_line(v: dict[str, Any]) -> str:
+    s = logic.voucher_summary(v)
+    exp = logic.parse_dt(s["vence_em"])
+    when = dt_util.as_local(exp).strftime("%d/%m %H:%M") if exp else "?"
+    val = f"até R$ {s['valor_max']:.2f}".replace(".", ",") if s["valor_max"] is not None else ""
+    return f"{s['descricao']} · {s['categoria']} · {val} · vence {when}"
+
+
+def _voucher_attrs(d: dict[str, Any]) -> dict[str, Any]:
+    av = logic.vouchers_available(d.get("vouchers") or [], dt_util.utcnow())
+    return {"por_categoria": _vstats(d)["por_categoria"], "cupons": [_voucher_line(v) for v in av[:40]]}
+
+
+def _wallet_balance(d: dict[str, Any]) -> float | None:
+    w = d.get("wallet") or []
+    vals = [(a.get("balance") or {}).get("value") for a in w]
+    vals = [v for v in vals if isinstance(v, (int, float))]
+    return round(sum(vals), 2) if vals else None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -182,6 +208,153 @@ SENSORS: tuple[IfoodSensorDescription, ...] = (
             ],
         },
     ),
+    IfoodSensorDescription(
+        key="cupons_disponiveis",
+        name="Cupons disponíveis",
+        icon="mdi:ticket-percent",
+        native_unit_of_measurement="cupons",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d: _vstats(d)["disponiveis"],
+        attrs_fn=_voucher_attrs,
+    ),
+    IfoodSensorDescription(
+        key="cupons_vencendo",
+        name="Cupons vencendo em 7 dias",
+        icon="mdi:ticket-confirmation-outline",
+        native_unit_of_measurement="cupons",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d: _vstats(d)["vencendo_7d"],
+    ),
+    IfoodSensorDescription(
+        key="cupons_clube",
+        name="Cupons do Clube",
+        icon="mdi:crown",
+        native_unit_of_measurement="cupons",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d: _vstats(d)["clube"],
+    ),
+    IfoodSensorDescription(
+        key="proximo_cupom_vence",
+        name="Próximo cupom vence",
+        icon="mdi:timer-sand",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda d: _dt((_vstats(d)["proximo"] or {}).get("vence_em")),
+        attrs_fn=lambda d: _vstats(d)["proximo"] or {},
+    ),
+    IfoodSensorDescription(
+        key="maior_cupom",
+        name="Maior cupom de restaurante",
+        icon="mdi:sale",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=BRL,
+        suggested_display_precision=2,
+        value_fn=lambda d: (_vstats(d)["maior"] or {}).get("valor_max"),
+        attrs_fn=lambda d: _vstats(d)["maior"] or {},
+    ),
+    IfoodSensorDescription(
+        key="plano_do_clube",
+        name="Plano do Clube",
+        icon="mdi:crown",
+        value_fn=lambda d: logic.club_info(d.get("me") or {})["plano"],
+        attrs_fn=lambda d: {**logic.club_info(d.get("me") or {}), "fonte": "tags internas do iFood (estimado)"},
+    ),
+    IfoodSensorDescription(
+        key="saldo_carteira",
+        name="Saldo da carteira",
+        icon="mdi:wallet",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=BRL,
+        suggested_display_precision=2,
+        value_fn=_wallet_balance,
+    ),
+)
+
+
+def _live(st: dict[str, Any]) -> dict[str, Any]:
+    return st.get("live") or {}
+
+
+def _usual(d: dict[str, Any], st: dict[str, Any]) -> dict[str, Any] | None:
+    mid = (st.get("info") or {}).get("id")
+    item = logic.usual_item(d["orders"], mid) if mid else None
+    if not item:
+        return None
+    now = next((i for i in st.get("items") or [] if i.get("id") == item["id"]), None)
+    price = now.get("unitPrice") if now else None
+    var = round(price - item["ultimo_preco"], 2) if isinstance(price, (int, float)) and item["ultimo_preco"] else None
+    return {**item, "preco_hoje": price, "variacao": var, "disponivel": (now or {}).get("availability") == "AVAILABLE"}
+
+
+@dataclass(frozen=True, kw_only=True)
+class IfoodStoreSensorDescription(SensorEntityDescription):
+    """Sensor de loja: recebe (dados, loja)."""
+
+    value_fn: Callable[[dict[str, Any], dict[str, Any]], Any]
+    attrs_fn: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None = None
+
+
+STORE_SENSORS: tuple[IfoodStoreSensorDescription, ...] = (
+    IfoodStoreSensorDescription(
+        key="tempo_de_entrega",
+        name="Tempo de entrega",
+        icon="mdi:clock-fast",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d, st: _live(st).get("deliveryTime"),
+    ),
+    IfoodStoreSensorDescription(
+        key="taxa_de_entrega",
+        name="Taxa de entrega",
+        icon="mdi:truck-delivery",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=BRL,
+        suggested_display_precision=2,
+        value_fn=lambda d, st: (_live(st).get("deliveryFee") or {}).get("value"),
+        attrs_fn=lambda d, st: {"valor_original": (_live(st).get("deliveryFee") or {}).get("originalValue")},
+    ),
+    IfoodStoreSensorDescription(
+        key="distancia",
+        name="Distância",
+        icon="mdi:map-marker-distance",
+        device_class=SensorDeviceClass.DISTANCE,
+        native_unit_of_measurement=UnitOfLength.KILOMETERS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d, st: _live(st).get("distance"),
+    ),
+    IfoodStoreSensorDescription(
+        key="nota",
+        name="Nota",
+        icon="mdi:star",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda d, st: _live(st).get("userRating"),
+        attrs_fn=lambda d, st: {
+            "avaliacoes": (st.get("extra") or {}).get("userRatingCount"),
+            "medias": {
+                (a.get("evaluationCriteria") or {}).get("title"): a.get("grade") for a in st.get("reviews") or []
+            },
+        },
+    ),
+    IfoodStoreSensorDescription(
+        key="pedido_minimo",
+        name="Pedido mínimo",
+        icon="mdi:cash-check",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=BRL,
+        suggested_display_precision=2,
+        value_fn=lambda d, st: _live(st).get("minimumOrderValue"),
+    ),
+    IfoodStoreSensorDescription(
+        key="prato_de_sempre",
+        name="Preço do prato de sempre",
+        icon="mdi:food-variant",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=BRL,
+        suggested_display_precision=2,
+        value_fn=lambda d, st: (_usual(d, st) or {}).get("preco_hoje"),
+        attrs_fn=lambda d, st: _usual(d, st) or {},
+    ),
 )
 
 
@@ -189,7 +362,12 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: IfoodConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Cria os sensores."""
-    async_add_entities(IfoodSensor(entry.runtime_data, desc) for desc in SENSORS)
+    coordinator = entry.runtime_data
+    entities: list[SensorEntity] = [IfoodSensor(coordinator, desc) for desc in SENSORS]
+    # ponytail: lojas fixadas no setup; se o ranking mudar, entram no próximo reload.
+    for store in logic.top_merchants(coordinator.data["orders"], TOP_MERCHANTS):
+        entities.extend(IfoodStoreSensor(coordinator, desc, store) for desc in STORE_SENSORS)
+    async_add_entities(entities)
 
 
 class IfoodSensor(IfoodEntity, SensorEntity):
@@ -212,3 +390,25 @@ class IfoodSensor(IfoodEntity, SensorEntity):
         """Atributos extras."""
         fn = self.entity_description.attrs_fn
         return fn(self.coordinator.data) if fn else None
+
+
+class IfoodStoreSensor(IfoodEntity, SensorEntity):
+    """Sensor de uma das lojas mais pedidas."""
+
+    entity_description: IfoodStoreSensorDescription
+
+    def __init__(self, coordinator, description: IfoodStoreSensorDescription, store: dict[str, Any]) -> None:
+        """Inicializa."""
+        super().__init__(coordinator, description.key, store)
+        self.entity_description = description
+
+    @property
+    def native_value(self) -> Any:
+        """Valor atual."""
+        return self.entity_description.value_fn(self.coordinator.data, self.store)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Atributos extras."""
+        fn = self.entity_description.attrs_fn
+        return fn(self.coordinator.data, self.store) if fn else None
