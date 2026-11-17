@@ -67,17 +67,27 @@ def _vstats(d: dict[str, Any]) -> dict[str, Any]:
     return logic.voucher_stats(d.get("vouchers") or [], dt_util.utcnow())
 
 
+def _vstats_local(d: dict[str, Any]) -> dict[str, Any]:
+    # "Hoje" = fim do dia no fuso do HA.
+    return logic.voucher_stats(d.get("vouchers") or [], dt_util.now())
+
+
 def _voucher_line(v: dict[str, Any]) -> str:
     s = logic.voucher_summary(v)
     exp = logic.parse_dt(s["vence_em"])
-    when = dt_util.as_local(exp).strftime("%d/%m %H:%M") if exp else "?"
+    when = f"vence {dt_util.as_local(exp).strftime('%d/%m %H:%M')}" if exp else "sem prazo fixo"
     val = f"até R$ {s['valor_max']:.2f}".replace(".", ",") if s["valor_max"] is not None else ""
-    return f"{s['descricao']} · {s['categoria']} · {val} · vence {when}"
+    return f"{s['descricao']} · {s['categoria']} · {val} · {when}"
 
 
 def _voucher_attrs(d: dict[str, Any]) -> dict[str, Any]:
     av = logic.vouchers_available(d.get("vouchers") or [], dt_util.utcnow())
-    return {"por_categoria": _vstats(d)["por_categoria"], "cupons": [_voucher_line(v) for v in av[:40]]}
+    st = _vstats(d)
+    return {
+        "por_categoria": st["por_categoria"],
+        "sem_prazo_fixo": st["sem_prazo_fixo"],
+        "cupons": [_voucher_line(v) for v in av[:40]],
+    }
 
 
 def _wallet_balance(d: dict[str, Any]) -> float | None:
@@ -166,6 +176,8 @@ SENSORS: tuple[IfoodSensorDescription, ...] = (
     ),
     _money_sensor("gasto_mes", "Gasto no mês"),
     _count_sensor("pedidos_mes", "Pedidos no mês"),
+    _money_sensor("gasto_7d", "Gasto nos últimos 7 dias"),
+    _count_sensor("pedidos_7d", "Pedidos nos últimos 7 dias"),
     _money_sensor("gasto_ano", "Gasto no ano"),
     _count_sensor("pedidos_ano", "Pedidos no ano"),
     _money_sensor("gasto_total", "Gasto total"),
@@ -224,6 +236,20 @@ SENSORS: tuple[IfoodSensorDescription, ...] = (
         native_unit_of_measurement="cupons",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda d: _vstats(d)["vencendo_7d"],
+    ),
+    IfoodSensorDescription(
+        key="cupons_restaurante_hoje",
+        name="Cupons de restaurante vencendo hoje",
+        icon="mdi:ticket-percent-outline",
+        native_unit_of_measurement="cupons",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda d: len(_vstats_local(d)["restaurante_hoje"]),
+        attrs_fn=lambda d: {
+            "cupons": [
+                {k: c[k] for k in ("descricao", "valor_max", "vence_em")} for c in _vstats_local(d)["restaurante_hoje"]
+            ],
+            "maior_valor": max((c["valor_max"] or 0 for c in _vstats_local(d)["restaurante_hoje"]), default=None),
+        },
     ),
     IfoodSensorDescription(
         key="cupons_clube",

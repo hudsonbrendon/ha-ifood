@@ -136,6 +136,7 @@ def stats(orders: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
         return dt.year == now.year and (year or dt.month == now.month)
 
     month = [o for o in paid if in_period(o, False)]
+    week = [o for o in paid if (parse_dt(o.get("createdAt")) or now) > now - timedelta(days=7)]
     year = [o for o in paid if in_period(o, True)]
 
     def spend(lst: list[dict[str, Any]]) -> float:
@@ -149,6 +150,8 @@ def stats(orders: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
         "gasto_total": spend(paid),
         "gasto_mes": spend(month),
         "pedidos_mes": len(month),
+        "gasto_7d": spend(week),
+        "pedidos_7d": len(week),
         "gasto_ano": spend(year),
         "pedidos_ano": len(year),
         "ticket_medio": round(spend(paid) / len(paid), 2) if paid else None,
@@ -193,6 +196,16 @@ VERTICAL_PT = {
 }
 
 
+def voucher_expiry(v: dict[str, Any]) -> datetime | None:
+    """Vencimento real. A API devolve muitos cupons com `expiresAt` = agora + ~1 h, com
+    fração de segundo (ex.: 18:30:20.530254073Z), que anda a cada consulta: é prazo
+    deslizante, não vencimento. Vencimento real vem redondo (ex.: 02:59:59Z)."""
+    raw = str(v.get("expiresAt") or "")
+    if not raw or "." in raw:
+        return None
+    return parse_dt(raw)
+
+
 def voucher_summary(v: dict[str, Any]) -> dict[str, Any]:
     """Resumo pt-BR de um cupom."""
     c = v.get("campaign") or {}
@@ -201,7 +214,7 @@ def voucher_summary(v: dict[str, Any]) -> dict[str, Any]:
         "descricao": c.get("promoDescription"),
         "valor_max": voucher_value(v),
         "categoria": VERTICAL_PT.get(c.get("vertical"), c.get("vertical")),
-        "vence_em": v.get("expiresAt"),
+        "vence_em": exp.isoformat() if (exp := voucher_expiry(v)) else None,
         "clube": voucher_is_club(v),
         "regras": c.get("promoTerms") or [],
     }
@@ -211,24 +224,30 @@ def vouchers_available(vouchers: list[dict[str, Any]], now: datetime) -> list[di
     """Disponíveis e não vencidos, do que vence primeiro ao último."""
     out = []
     for v in vouchers:
-        exp = parse_dt(v.get("expiresAt"))
+        exp = voucher_expiry(v)
         if v.get("status") == "AVAILABLE" and (exp is None or exp > now):
             out.append(v)
-    return sorted(out, key=lambda v: parse_dt(v.get("expiresAt")) or now)
+    # Com prazo fixo primeiro (do que vence antes), depois os sem prazo.
+    return sorted(out, key=lambda v: (voucher_expiry(v) is None, voucher_expiry(v) or now))
 
 
 def voucher_stats(vouchers: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     """Números da carteira de cupons."""
     av = vouchers_available(vouchers, now)
-    soon = [v for v in av if (parse_dt(v.get("expiresAt")) or now) < now + timedelta(days=7)]
+    fixed = [v for v in av if voucher_expiry(v)]
+    soon = [v for v in fixed if voucher_expiry(v) < now + timedelta(days=7)]
     food = [v for v in av if (v.get("campaign") or {}).get("vertical") == "RESTAURANT"]
     best = max(food, key=lambda v: voucher_value(v) or 0, default=None)
     by_cat: Counter[str] = Counter(voucher_summary(v)["categoria"] or "Outros" for v in av)
+    end_of_day = now.astimezone(now.tzinfo).replace(hour=23, minute=59, second=59)
+    food_today = [v for v in food if voucher_expiry(v) and voucher_expiry(v) <= end_of_day]
     return {
+        "restaurante_hoje": [voucher_summary(v) for v in food_today],
         "disponiveis": len(av),
         "vencendo_7d": len(soon),
         "clube": sum(1 for v in av if voucher_is_club(v)),
-        "proximo": voucher_summary(av[0]) if av else None,
+        "proximo": voucher_summary(fixed[0]) if fixed else None,
+        "sem_prazo_fixo": len(av) - len(fixed),
         "maior": voucher_summary(best) if best else None,
         "por_categoria": dict(by_cat.most_common()),
     }

@@ -78,6 +78,7 @@ def main() -> None:
     assert s["restaurante_favorito"] == "Churrascaria", s
     assert s["ticket_medio"] == 54.65, s
     assert s["primeiro_pedido"] == "2025-12-20T19:00:00-03:00", s
+    assert s["pedidos_7d"] == 1 and s["gasto_7d"] == 31.97, s  # 10/11 entra; 17/11 está aberto (não pago)
 
     assert logic.is_active(orders[0]) and not logic.is_active(orders[3])
     sm = logic.summary(orders[0])
@@ -98,11 +99,19 @@ def main() -> None:
         v("c", "2026-11-10T02:59:59Z", {"type": "FIXED", "value": 9000.0}),  # vencido
         v("d", "2026-11-20T02:59:59Z", {"type": "FIXED", "value": 9000.0}, status="USED"),
         v("e", "2026-11-19T02:59:59Z", {"type": "FIXED", "value": 3000.0}, vertical="PHARMACY"),
+        # prazo deslizante (agora + ~1 h, com fração de segundo): não é vencimento
+        v("f", "2026-11-17T18:30:20.530254073Z", {"type": "FIXED", "value": 2000.0}),
     ]
     vst = logic.voucher_stats(vs, now)
-    assert vst["disponiveis"] == 3 and vst["vencendo_7d"] == 2 and vst["clube"] == 1, vst
-    assert vst["proximo"]["id"] == "a" and vst["maior"]["valor_max"] == 15.0, vst
-    assert vst["por_categoria"] == {"Restaurantes": 2, "Farmácias": 1}, vst
+    assert vst["disponiveis"] == 4 and vst["sem_prazo_fixo"] == 1, vst
+    assert vst["vencendo_7d"] == 2 and vst["clube"] == 1, vst
+    assert vst["proximo"]["id"] == "a" and vst["maior"]["valor_max"] == 20.0, vst
+    assert vst["por_categoria"] == {"Restaurantes": 3, "Farmácias": 1}, vst
+    assert logic.voucher_summary(vs[-1])["vence_em"] is None
+    # "a" vence 18/11 02:59Z = 17/11 23:59 em Fortaleza: vence hoje; "b" (30/11) não.
+    assert [c["id"] for c in vst["restaurante_hoje"]] == ["a"], vst
+    vst2 = logic.voucher_stats(vs, datetime(2026, 11, 16, 12, 0, tzinfo=TZ))
+    assert vst2["restaurante_hoje"] == [], vst2
 
     club = logic.club_info({"club": {"tags": ["club_lifecycle_string_plan/signed", "club_plan_tier/standard",
                                                "lifetime_club_orders/6+", "is_mub_club"]}})

@@ -119,6 +119,7 @@ Pronto. Os dados aparecem em alguns segundos.
 | `sensor.ifood_ultimo_pedido` | restaurante do último pedido (+ detalhes nos atributos) |
 | `sensor.ifood_data_do_ultimo_pedido`, `sensor.ifood_valor_do_ultimo_pedido` | |
 | `sensor.ifood_gasto_no_mes`, `sensor.ifood_pedidos_no_mes` | só pedidos concluídos |
+| `sensor.ifood_gasto_nos_ultimos_7_dias`, `sensor.ifood_pedidos_nos_ultimos_7_dias` | janela móvel de 7 dias |
 | `sensor.ifood_gasto_no_ano`, `sensor.ifood_pedidos_no_ano` | |
 | `sensor.ifood_gasto_total`, `sensor.ifood_total_de_pedidos`, `sensor.ifood_ticket_medio` | dentro do histórico que a API devolve (~6 meses) |
 | `sensor.ifood_pedidos_recusados` | recusados/cancelados |
@@ -126,7 +127,8 @@ Pronto. Os dados aparecem em alguns segundos.
 | `sensor.ifood_taxas_de_entrega_no_mes` | |
 | `sensor.ifood_restaurante_favorito` | o mais pedido (+ top 5) |
 | `sensor.ifood_cliente_desde` | data de cadastro (+ nome e endereços) |
-| `sensor.ifood_cupons_disponiveis` | cupons válidos. Atributos: lista com valor, categoria e vencimento; contagem por categoria |
+| `sensor.ifood_cupons_disponiveis` | cupons válidos. Atributos: lista com valor, categoria e vencimento; contagem por categoria; quantos não têm prazo fixo |
+| `sensor.ifood_cupons_de_restaurante_vencendo_hoje` | cupons de restaurante com vencimento real hoje (atributos: lista e maior valor) |
 | `sensor.ifood_cupons_vencendo_em_7_dias`, `sensor.ifood_cupons_do_clube` | |
 | `sensor.ifood_proximo_cupom_vence` | quando vence o próximo cupom (+ qual) |
 | `sensor.ifood_maior_cupom_de_restaurante` | maior desconto em restaurante (R$) |
@@ -148,6 +150,11 @@ Pronto. Os dados aparecem em alguns segundos.
 | `sensor.ifood_<loja>_preco_do_prato_de_sempre` | preço de hoje do item que você mais pede. Atributos: último preço pago, variação, quantas vezes pediu |
 
 As lojas são escolhidas quando a integração carrega. Se o seu ranking mudar, recarregue a integração.
+
+> [!NOTE]
+> A maioria dos cupons vem da API **sem prazo fixo**: o iFood devolve um `expiresAt` de "agora + ~1 h" que anda a
+> cada consulta. Esses cupons contam como disponíveis, mas ficam fora de "vencendo", "próximo vence" e do calendário.
+> Só os que têm vencimento real (ex.: 23:59 de um dia) entram nessas contas.
 
 ### Atualização
 

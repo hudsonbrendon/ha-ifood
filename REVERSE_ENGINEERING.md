@@ -72,7 +72,7 @@ Hosts de origem que aceitam só Bearer (sem Cloudflare), além do `marketplace`:
 
 | Host | Rota | Conteúdo |
 |---|---|---|
-| `cw-marketplace.ifood.com.br` | `GET /v3/customers/me/wallet/benefits?lat&lon&distanceInKm=10` (+`X-ZoneId`) | **cupons**: `vouchers[{code, status AVAILABLE/USED, expiresAt, campaign{code, promoDescription, promoTerms[], effects[{type FIXED(centavos)/PERCENT, value, maxCredit(reais)}], vertical}, timesUsed}]`. Conta testada: 100 disponíveis, 99 vencem em 7 dias |
+| `cw-marketplace.ifood.com.br` | `GET /v3/customers/me/wallet/benefits?lat&lon&distanceInKm=10` (+`X-ZoneId`) | **cupons**: `vouchers[{code, status AVAILABLE/USED, expiresAt, campaign{code, promoDescription, promoTerms[], effects[{type FIXED(centavos)/PERCENT, value, maxCredit(reais)}], vertical}, timesUsed}]`. **`expiresAt` com fração de segundo = prazo deslizante** (agora + ~1 h, muda a cada consulta); vencimento real vem redondo (`02:59:59Z` = 23:59 BRT). Conta testada: 100 disponíveis, 98 sem prazo fixo, 2 com vencimento real |
 | `cw-marketplace.ifood.com.br` | `GET /v2/merchants/{id}?latitude&longitude&channel=IFOOD` | **loja ao vivo**: `available, availableForScheduling, deliveryTime (min), deliveryFee{value}, distance (km), userRating, minimumOrderValue, isFavorite` |
 | `payment.ifood.com.br` (= `payin-api`) | `GET /v1/customers/me/wallet-accounts` (+`X-Ifood-Device-Payment-Secret`) | saldo da conta iFood (`MOVILE_PAY`, `balance.value`) |
 | `payment.ifood.com.br` | `GET /v1/customers/me/card-tokens` (+secret) | cartões salvos (vazio na conta) |
