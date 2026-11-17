@@ -21,7 +21,13 @@ from .api import (
     IfoodApiError,
     IfoodApiRateLimitError,
 )
-from .const import CONF_ACCESS_TOKEN, CONF_DEVICE_ID, CONF_PAYMENT_SECRET, CONF_REFRESH_TOKEN, DOMAIN
+from .const import (
+    CONF_ACCESS_TOKEN,
+    CONF_DEVICE_ID,
+    CONF_PAYMENT_SECRET,
+    CONF_REFRESH_TOKEN,
+    DOMAIN,
+)
 
 SCHEMA = vol.Schema(
     {

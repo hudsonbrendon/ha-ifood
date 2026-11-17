@@ -1,8 +1,17 @@
 <p align="center">
-  <img src="custom_components/ifood/brand/icon@2x.png" width="128" alt="iFood">
+  <img src="custom_components/ifood/brand/logo@2x.png" alt="iFood" height="128">
 </p>
 
 # iFood para Home Assistant
+
+[![Tests](https://github.com/hudsonbrendon/ha-ifood/actions/workflows/tests.yml/badge.svg)](https://github.com/hudsonbrendon/ha-ifood/actions/workflows/tests.yml)
+[![Hassfest](https://github.com/hudsonbrendon/ha-ifood/actions/workflows/hassfest.yml/badge.svg)](https://github.com/hudsonbrendon/ha-ifood/actions/workflows/hassfest.yml)
+[![HACS](https://github.com/hudsonbrendon/ha-ifood/actions/workflows/validate.yml/badge.svg)](https://github.com/hudsonbrendon/ha-ifood/actions/workflows/validate.yml)
+[![Release](https://img.shields.io/github/v/release/hudsonbrendon/ha-ifood?sort=semver)](https://github.com/hudsonbrendon/ha-ifood/releases)
+[![Downloads](https://img.shields.io/github/downloads/hudsonbrendon/ha-ifood/total)](https://github.com/hudsonbrendon/ha-ifood/releases)
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/)
+[![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2025.1.0%2B-18BCF2?logo=homeassistant&logoColor=white)](https://www.home-assistant.io/)
+[![License](https://img.shields.io/github/license/hudsonbrendon/ha-ifood)](LICENSE)
 
 Integração **não oficial** que traz a sua conta do iFood para o Home Assistant:
 

@@ -19,7 +19,7 @@ def parse_dt(value: Any) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))  # noqa: FURB162
     except ValueError:
         return None
 

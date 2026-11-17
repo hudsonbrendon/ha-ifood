@@ -7,7 +7,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import IfoodApiClient
-from .const import CONF_ACCESS_TOKEN, CONF_DEVICE_ID, CONF_PAYMENT_SECRET, CONF_REFRESH_TOKEN
+from .const import (
+    CONF_ACCESS_TOKEN,
+    CONF_DEVICE_ID,
+    CONF_PAYMENT_SECRET,
+    CONF_REFRESH_TOKEN,
+)
 from .coordinator import IfoodDataUpdateCoordinator
 from .data import IfoodConfigEntry
 
