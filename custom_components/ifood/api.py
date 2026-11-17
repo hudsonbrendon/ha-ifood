@@ -21,8 +21,8 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
 )
-# Renova o access token (~2 h de vida) quando faltar menos que isso.
-REFRESH_MARGIN_SECONDS = 600
+# Renova o access token (~2 h de vida) quando faltar menos que isso (3 ciclos de 10 min, por causa do 429).
+REFRESH_MARGIN_SECONDS = 1800
 
 
 class IfoodApiError(Exception):
@@ -88,12 +88,18 @@ class IfoodApiClient:
         async with self._lock:
             if not force and token_expiry(self.access_token) - time.time() > REFRESH_MARGIN_SECONDS:
                 return False
-            data = await self._raw(
-                "POST",
-                "/v2/access_tokens",
-                json_body={"refresh_token": self.refresh_token},
-                auth=False,
-            )
+            try:
+                data = await self._raw(
+                    "POST",
+                    "/v2/access_tokens",
+                    json_body={"refresh_token": self.refresh_token},
+                    auth=False,
+                )
+            except IfoodApiRateLimitError:
+                # Rate limit (~20 min): se o access atual ainda vale, segue com ele e tenta no próximo ciclo.
+                if not force and token_expiry(self.access_token) > time.time() + 30:
+                    return False
+                raise
             if not isinstance(data, dict) or not data.get("access_token"):
                 raise IfoodApiAuthenticationError("resposta sem access_token")
             self.access_token = data["access_token"]

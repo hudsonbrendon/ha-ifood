@@ -60,4 +60,4 @@ automation:
 
 ## Teste
 
-`python3 -I tests/test_logic.py`
+`python3 -I tests/test_logic.py` e `uv run --with aiohttp python -I tests/test_refresh.py`
