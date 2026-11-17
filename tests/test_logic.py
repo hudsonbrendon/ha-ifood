@@ -128,5 +128,9 @@ def main() -> None:
     print("ok")
 
 
+def test_logic() -> None:
+    main()
+
+
 if __name__ == "__main__":
     main()

@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "iFood",
-        "description": "Paste the cookies from a logged-in session at www.ifood.com.br (DevTools → Application → Cookies): aRefreshToken and aDeviceId. aAccessToken is optional.",
+        "description": "Paste the cookies from a logged-in session at {url} (DevTools → Application → Cookies): aRefreshToken and aDeviceId. aAccessToken is optional.",
         "data": {
           "refresh_token": "Refresh token (aRefreshToken)",
           "device_id": "Device ID (aDeviceId)",
@@ -13,7 +13,7 @@
       },
       "reauth_confirm": {
         "title": "iFood session expired",
-        "description": "Log in again at www.ifood.com.br and paste the new cookies.",
+        "description": "Log in again at {url} and paste the new cookies.",
         "data": {
           "refresh_token": "Refresh token (aRefreshToken)",
           "device_id": "Device ID (aDeviceId)",

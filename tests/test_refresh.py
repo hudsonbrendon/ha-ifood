@@ -71,4 +71,9 @@ async def main() -> None:
     print("ok")
 
 
-asyncio.run(main())
+async def test_refresh() -> None:
+    await main()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
