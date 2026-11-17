@@ -65,3 +65,27 @@ DELIVERY_REQUEST_COMPLETED`.
 
 Do bundle (logística iFood, não visto ao vivo): `ASSIGN_DRIVER, GOING_TO_ORIGIN, ARRIVED_AT_ORIGIN, COLLECTED,
 GOING_TO_DESTINATION, ARRIVED_AT_DESTINATION, ORDER_PICKUP, DELIVERED`.
+
+## Rodada 2: inventário completo (77 páginas, 115 chunks)
+
+Hosts de origem que aceitam só Bearer (sem Cloudflare), além do `marketplace`:
+
+| Host | Rota | Conteúdo |
+|---|---|---|
+| `cw-marketplace.ifood.com.br` | `GET /v3/customers/me/wallet/benefits?lat&lon&distanceInKm=10` (+`X-ZoneId`) | **cupons**: `vouchers[{code, status AVAILABLE/USED, expiresAt, campaign{code, promoDescription, promoTerms[], effects[{type FIXED(centavos)/PERCENT, value, maxCredit(reais)}], vertical}, timesUsed}]`. Conta testada: 100 disponíveis, 99 vencem em 7 dias |
+| `cw-marketplace.ifood.com.br` | `GET /v2/merchants/{id}?latitude&longitude&channel=IFOOD` | **loja ao vivo**: `available, availableForScheduling, deliveryTime (min), deliveryFee{value}, distance (km), userRating, minimumOrderValue, isFavorite` |
+| `payment.ifood.com.br` (= `payin-api`) | `GET /v1/customers/me/wallet-accounts` (+`X-Ifood-Device-Payment-Secret`) | saldo da conta iFood (`MOVILE_PAY`, `balance.value`) |
+| `payment.ifood.com.br` | `GET /v1/customers/me/card-tokens` (+secret) | cartões salvos (vazio na conta) |
+
+No `marketplace`:
+
+- `GET /v1/customers/me` → `club.tags[]` (segmentação interna: `club_lifecycle_string_plan/signed`, `club_plan_tier/standard`, `status_clube/...`, `lifetime_club_orders/6+`, `freq_ifood_weekly/2`...). Única pista do Clube sem o app.
+- `GET /v1/merchants/{id}/extra` → horários (`shifts[{dayOfWeek,start,duration}]`), `userRatingCount`, categorias.
+- `GET /v1/customers/me/merchants/{id}/items` → itens que você já pediu na loja, com preço atual.
+- `GET /v1/review/evaluations?filterJson={restaurantUuid,page,pageSize,visible}` → avaliações da loja + médias por critério.
+- `GET /v1/customers/me/contact-methods`, `/external-identities`, `/data-privacy/preferences`.
+
+O segredo de pagamento é o valor do cookie `x-ifood-device-payment-<hash>`.
+
+Sem API (iframe HTML de `webmiddleware.ifood.com.br`): avisos/notificações e página do Clube.
+Endereço "favorito" da conta pode não ser onde você está: para consultar loja, usar as coordenadas da última entrega.
