@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "iFood",
+        "description": "Paste the cookies from a logged-in session at www.ifood.com.br (DevTools → Application → Cookies): aRefreshToken and aDeviceId. aAccessToken is optional.",
+        "data": {
+          "refresh_token": "Refresh token (aRefreshToken)",
+          "device_id": "Device ID (aDeviceId)",
+          "access_token": "Access token (aAccessToken, optional)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "iFood session expired",
+        "description": "Log in again at www.ifood.com.br and paste the new cookies.",
+        "data": {
+          "refresh_token": "Refresh token (aRefreshToken)",
+          "device_id": "Device ID (aDeviceId)",
+          "access_token": "Access token (aAccessToken, optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid or expired token.",
+      "rate_limited": "iFood rate-limited token refreshes. Try again in a few minutes or also provide aAccessToken.",
+      "cannot_connect": "Cannot connect to iFood.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "Account already configured.",
+      "reauth_successful": "Session renewed.",
+      "unique_id_mismatch": "Tokens belong to another account."
+    }
+  }
+}
